@@ -1,144 +1,107 @@
-import sys
-import psycopg2
-from psycopg2 import OperationalError, errorcodes, errors
+from create_connection import connect
+import pandas as pd
+from datetime import datetime
+from psycopg2.extras import execute_values
 
 
-DATABASE = ""
-USER = ""
-PASSWORD = ""
-HOST = ""
-PORT = ""
-
-
-def show_psycopg2_exception(err):
+def create_tables() -> None:
     """
-    Handles and parses psycopg2 exceptions.
+    Connects to the database and creates tables if they don't exist
+    for keywords (keywords) and its data (keywords_data)
     """
-    # get details about the exception
-    err_type, err_obj, traceback = sys.exc_info()
-    # get the line number when exception occurred
-    line_n = traceback.tb_lineno
-    # print the connect() error
-    print("\npsycopg2 ERROR:", err, "on line number:", line_n)
-    print("psycopg2 traceback:", traceback, "-- type:", err_type)
-    # psycopg2 extensions.Diagnostics object attribute
-    print("\nextensions.Diagnostics:", err.diag)
-    # print the pgcode and pgerror exceptions
-    print("pgerror:", err.pgerror)
-    print("pgcode:", err.pgcode, "\n")
+
+    connection = connect()
+    cur = connection.cursor()
+
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS keywords (
+    id serial PRIMARY KEY,
+    keyword VARCHAR ( 255 ) NOT NULL,
+    query_timestamp TIMESTAMP 
+    );
+    CREATE TABLE IF NOT EXISTS keywords_data (
+        id serial PRIMARY KEY,
+        keyword_id INT,
+        title VARCHAR (255),
+        price DECIMAL,
+        rating FLOAT,
+        reviews_count INT,
+        item_url TEXT,
+        image_url TEXT,
+        CONSTRAINT fk_keyword
+            FOREIGN KEY(keyword_id) 
+                REFERENCES keywords(id));''')
+
+    print('Tables were created successfully')
 
 
-def connect(database: str = DATABASE, user: str = USER, password: str = PASSWORD, host: str = HOST, port: str = PORT):
+def drop_tables() -> None:
     """
-    The function will attempt to establish a connection with the database and return the connection if successful.
-    If unsuccessful the error will be shown.
-    Database information needs to be provided.
-    """
-    connection = None
-    try:
-        print("Establishing a connection with the database...")
-        connection = psycopg2.connect(
-            user=user,
-            database=database,
-            password=password,
-            host=host,
-            port=port
-        )
-        print("Connection successful!")
-    except OperationalError as err:
-        # passing exception to function
-        show_psycopg2_exception(err)
-        # set the connection to 'None' in case of error
-        connection = None
-
-    return connection
-
-
-def copy_from_csv():
-    """
-    This function will upload the data from a csv file into a postgresql table.
-    csv file and the table name need to be provided.
-    If the function is unsuccessful the error will be shown.
+    Drops existing tables
     """
     connection = connect()
-    string_execute = f"all_items.csv"
-    with open("all_items.csv") as csv:
-        if connection is not None:
-            connection.autocommit = True
-            cursor = connection.cursor()
-            try:
-                cursor.copy_from(csv, "all_items", sep=";")
-                print("Data uploaded successfully")
-                cursor.close()
-                connection.close()
-            except (Exception, psycopg2.DatabaseError) as err:
-                show_psycopg2_exception(err)
-                cursor.close()
+    cur = connection.cursor()
+    cur.execute('''
+    DROP TABLE IF EXISTS
+        keywords,
+        keywords_data;''')
+
+    print('Tables were dropped successfully')
 
 
-def all_items_table():
+def export_data() -> None:
     """
-    The function will create a table for one category of items. The table has an ID, item title, price, item link,
-     image link and type. The type column is used as a reference to the types table.
+    Selects and fetches all data from two tables about keywords
+    and exports that data to csv file
     """
     connection = connect()
-    if connection is not None:
-        connection.autocommit = True
-        try:
-            cursor = connection.cursor()
-            cursor.execute("DROP TABLE IF EXISTS all_items")
-            cursor.execute('''CREATE TABLE all_items (
-            id SERIAL PRIMARY KEY,
-            title varchar(100) DEFAULT 'brand unknown',
-            price varchar(50),
-            item_link text NOT NULL,
-            image_link text NOT NULL,
-            type varchar(100),
-            CONSTRAINT item_type
-                FOREIGN KEY (type)
-                    REFERENCES types (type)
-                    ON DELETE CASCADE
-            );''')
-            print(f"Table all_items created successfully")
-            cursor.close()
-            connection.close()
-
-        except OperationalError as err:
-            # pass exception to function
-            show_psycopg2_exception(err)
-            # set the connection to 'None' in case of error
-            connection = None
+    curr = connection.cursor()
+    curr.execute('''
+    SELECT keyword, query_timestamp, title, price, rating, reviews_count, item_url, image_url
+    FROM keywords
+    INNER JOIN keywords_data ON keywords_data.keyword_id = keywords.id;''')
+    rows = curr.fetchall()
+    df = pd.DataFrame(rows, columns=[x[0] for x in curr.description])
+    df.to_csv('data_export.csv', index=False)
+    print('Data was exported successfully to data_export.csv')
 
 
-def item_types_table(types: list):
+def insert_keyword(keyword: str) -> None:
     """
-    This function when given a list of item types creates a table using those items. It has an ID column and the type.
-    Is referenced in the type column of all items.
+    Inserts given keyword to the 'keywords' table
+    :param keyword: keyword that will be scraped
     """
     connection = connect()
-    if connection is not None:
-        connection.autocommit = True
-        try:
-            cursor = connection.cursor()
-            cursor.execute("DROP TABLE IF EXISTS types")
-            cursor.execute('''CREATE TABLE types (
-            id SERIAL PRIMARY KEY,
-            type varchar(100), 
-            
-            UNIQUE(type)
-            );''')
-            print("Table types created successfully")
-            for i in types:
-                string_execute = f'''
-                INSERT INTO types (type) VALUES (\'{i}\');
-                '''
-                cursor.execute(string_execute)
+    curr = connection.cursor()
+    dt = datetime.now()
 
-            cursor.close()
-            connection.close()
+    curr.execute(f"INSERT INTO keywords(keyword, query_timestamp) VALUES ('{keyword}', '{dt}');")
 
-        except OperationalError as err:
-            # pass exception to function
-            show_psycopg2_exception(err)
-            # set the connection to 'None' in case of error
-            connection = None
+
+def insert_dataframe_to_keywords_data(df: pd.DataFrame, keyword_id: int) -> None:
+    """
+    Inserts given dataframe containing information about scraped data for a given keyword
+    to the 'keywords_data' table
+    :param df: Scraped dataframe with products data
+    :param keyword_id: keyword's if for which the data was scraped
+    """
+    connection = connect()
+    curr = connection.cursor()
+
+    tuples = [(keyword_id, ) + tuple(x) for x in df.to_numpy()]
+    cols_list = list(df.columns)
+    cols_list.insert(0, 'keyword_id')
+    cols = ','.join(cols_list)
+    query = "INSERT INTO %s(%s) VALUES %%s" % ('keywords_data', cols)
+    execute_values(curr, query, tuples)
+
+
+def get_last_keyword_id() -> int:
+    """
+    Finds and returns the last keyword's id
+    :return: last keyword's id (int)
+    """
+    connection = connect()
+    curr = connection.cursor()
+    curr.execute("SELECT MAX(id) FROM keywords;")
+    return curr.fetchone()[0]
