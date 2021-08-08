@@ -1,108 +1,268 @@
-import pandas as pd
-from bs4 import BeautifulSoup
-import requests
-from fake_useragent import UserAgent
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 import time
-import random
-from decimal import Decimal
-import re
-from database_operations import *
+from selenium.webdriver.support.ui import Select
+from random import randint
+import pandas as pd
 
-
-def scrape_keyword(number_of_items: int, keyword: str) -> pd.DataFrame:
+class Scraper:
     """
-    Scrapes number_of_items products from etsy.com for a given keyword
-    and returns a pandas dataframe
-    :param number_of_items: Number of products to scrape (int)
-    :param keyword: Keyword for which scrape products data (str)
-    :return: pandas Dataframe
+    A class that scrapes ali-express order page, and exports a csv file for further use.
+    ...
+    Attributes
+    ----------
+    account_name : string
+        your ali-express email address login, example: 'email@email.com'
+    account_password : string
+        your ali-express password login, example: 'password123'
+    
+    driver_path : string
+        path to your chrome driver, example: '/usr/bin/chromedriver'
+    num_of_pages : int
+        number of pages to be scraped, example: 3
+    Methods
+    -------
+    wait():
+        makes the bot wait for a specific trigger on the page
+    
+    hover_action():
+        creates a mouse hover over some element on the page
+    close_popup():
+        closes a popup on the page
+    signin():
+        bot signs in to your account with init credentials
+    get_my_orders_page():
+       proceeds to my order page while on your account
+    scrape_items():
+        scrapes a passed page
+    
+    get_all_items():
+       combines all items from all pages
+    get_next_page():
+        goes to next page
+    
+    export_csv():
+        creates a csv file in root directory with all the scraped items
+    main():
+        main function of the class, utilizes all the previous methods
     """
-    ua = UserAgent()
+    def __init__(self, account_name: str, account_password: str, driver_path: str, num_of_pages: int) -> None:
+        self.__account_name = account_name
+        self.__account_password = account_password
+        self.__driver_path = driver_path
+        self.__num_of_pages = num_of_pages
 
-    items_count = 0
-    titles_list = []
-    prices_list = []
-    ratings_list = []
-    reviews_count_list = []
-    item_urls_list = []
-    images_url_list = []
+    def wait(self, driver: object, wait_time, by: By, element_identifier: str) -> None:
+        """This method helps the bot to wait for
+            a specific element to appear before proceeding with the next action
+        Args:
+            driver (object): driver object from Selenium,
+            by (object) : By object from Selenium,
+            element_identifier (str) : element we are waiting for
+        Returns:
+            None
+        """
+        try:
+            # wait for the login popup
+            WebDriverWait(driver, wait_time).until(
+                EC.presence_of_element_located((by, element_identifier)))
+        except:
+            driver.quit()  
 
-    keyword_query = keyword.replace(" ", "+")
+    def hover_action(self, driver: object, element_identifier:str) -> None:
+        """This method helps the bot to hover over an element
+        Args:
+            driver (object): driver object from Selenium,
+            element_identifier (str) : element we are hovering over
+        Returns:
+            None
+        """
+        hover = ActionChains(driver).move_to_element(driver.find_element_by_id(element_identifier))
+        hover.perform()
+        time.sleep(randint(2,4))
+        return None
+    
+    def close_popup(self, driver: object) -> None:
+        """This method helps the bot to close a popup when it appears
+        Args:
+            driver (object): driver object from Selenium,
+        Returns:
+            None
+        """
+        close_popup_element = driver.find_element_by_class_name("btn-close")
+        close_popup_element.click()
+        time.sleep(randint(1,5))
+        return None
 
-    while items_count < number_of_items:
-        page_number = 1
+    def signin(self, driver: object) -> None:
+        """This method helps the bot to signin to ali-express
+        Args:
+            driver (object): driver object from Selenium,
+        Returns:
+            None
+        """
+        # hover over signin button
+        self.hover_action(driver, "nav-user-account")
 
-        url = f'https://www.etsy.com/search?q={keyword_query}&page={page_number}'
-        page = requests.get(url=url, headers={"User-Agent": ua.chrome})
-        if page.status_code == 200:
-            soup = BeautifulSoup(page.content, "html.parser")
-            for container in soup.select(".js-merch-stash-check-listing.v2-listing-card"):
+        # click signin button
+        driver.find_element_by_class_name("sign-btn").click()
+        
+        # waiting for signin popup
+        self.wait(driver, 20, By.ID, "batman-dialog-wrap")
+        
+        # get email and password fields and impute pw and email 
+        email_input = driver.find_element_by_id("fm-login-id")
+        password_input = driver.find_element_by_id("fm-login-password")
 
-                title = container.find("h3").text.strip().replace("'", "")
-                titles_list.append(title)
+        email_input.send_keys(self.__account_name)
+        time.sleep(randint(2,4))
 
-                price = Decimal(container.find("span", class_="currency-value").text)
-                prices_list.append(price)
+        password_input.send_keys(self.__account_password)
+        time.sleep(randint(4, 6))
 
-                try:
-                    rating = float(container.find("input").get('value'))
-                except:
-                    rating = 0
-                    pass
+        # click submit btn
+        driver.find_element_by_class_name("fm-button").click()
 
-                ratings_list.append(rating)
+    def get_my_orders_page(self, driver: object) -> None:
+        """This method helps the bot to go to my order page when logged in
+        Args:
+            driver (object): driver object from Selenium,
+        Returns:
+            None
+        """
+        # hover over account icon
+        self.hover_action(driver, "nav-user-account")
 
-                try:
-                    reviews_container = container.select(".text-body-smaller.text-gray-lighter")
-                    reviews_count_string = reviews_container[1].text
-                    reviews_count_without_parentheses = re.sub('[(,)]', '', reviews_count_string)
-                    reviews_count = int(reviews_count_without_parentheses)
-                except:
-                    reviews_count = 0
-                    pass
+        # go to my orders
+        driver.find_element_by_link_text("My Orders").click()
+        self.wait(driver, 20, By.LINK_TEXT, 'Orders')
+        time.sleep(randint(2, 4))
 
-                reviews_count_list.append(reviews_count)
+        # select 30 elements per page
+        Select(driver.find_element_by_id('simple-pager-page-size')).select_by_value('30')
+        time.sleep(20)
+    
+    def scrape_items(self, driver: object) -> list:
+        """This method scrapes items from a selected page.
+        Args:
+            driver (object): driver object from Selenium,
+        Returns:
+            items (list) : list of items from the page
+        """
+        items = []
 
-                item_url = container.find("a").get('href')
-                item_urls_list.append(item_url)
+        # get order elements
+        orders = driver.find_elements_by_tag_name('tbody')
 
-                image_url = container.find("img").get('src')
-                if not image_url:
-                    image_url = container.find("img").get('data-src')
-                images_url_list.append(image_url)
+        # loop over each order
+        for order in orders:
+            
+            # get orders specifications
+            order_id = order.find_element_by_xpath(".//tr[@class='order-head']/td[@class='order-info']/p[@class='first-row']/span[@class='info-body']").text
+            order_time = order.find_element_by_xpath(".//td[@class='order-info']/p[@class='second-row']/span[@class='info-body']").text
+            store_name = order.find_element_by_xpath(".//td[@class='store-info']/p[@class='first-row']/span[@class='info-body']").text
+            store_link = order.find_element_by_xpath(".//td[@class='store-info']/p[@class='second-row']/a[1]").get_attribute("href")
+            order_price = order.find_element_by_xpath(".//td[@class='order-amount']/div[@class='amount-body']/p[@class='amount-num']").text
 
-                items_count += 1
+            # get items from orders
+            order_items = order.find_elements_by_xpath(".//tr[@class='order-body']")
 
-                if items_count == number_of_items:
-                    break
+            # loop over each item in order
+            for item in order_items:
+                # scrape item specifications
+                item_title = item.find_element_by_xpath(".//td[@class='product-sets']/div[@class='product-right']/p[@class='product-title']/a").text
+                item_image_url = item.find_element_by_xpath(".//td[@class='product-sets']/div[@class='product-left']/a[@class='pic s50']/img").get_attribute("src")
+                item_price = item.find_element_by_xpath(".//td[@class='product-sets']/div[@class='product-right']/p[@class='product-amount']/span[1]").text
+                item_amount = item.find_element_by_xpath(".//td[@class='product-sets']/div[@class='product-right']/p[@class='product-amount']/span[2]").text
+                item_property = item.find_element_by_xpath(".//td[@class='product-sets']/div[@class='product-right']/p[@class='product-property']").text
+                
+                # create new object of an item
+                new_item = {
+                    "order_id": order_id,
+                    "order_time": order_time,
+                    "store_name": store_name,
+                    "store_link": store_link,
+                    "order_price": order_price,
+                    "item_title": item_title,
+                    "item_image_url": item_image_url,
+                    "item_price": item_price,
+                    "item_amount": item_amount,
+                    "item_property": item_property
+                }
 
-        else:
-            print('Page unreachable')
-            break
+                items.append(new_item)
 
-        page_number += 1
-        print('End of loop. Currently there are: ', str(items_count), ' items from: ', str(number_of_items))
+        return items
 
-        time.sleep(random.uniform(2, 4))
+    def get_all_items(self, driver: object) -> list:
+        """This method scrapes combines all the items from all the pages.
+        Args:
+            driver (object): driver object from Selenium,
+        Returns:
+            items (list) : list of items from all pages
+        """
+        all_items = []
+        
+        # scrape each page
+        for _ in range(self.__num_of_pages):
+            items = self.scrape_items(driver)
 
-    data_dictionary = {'title': titles_list, 'price': prices_list, 'rating': ratings_list,
-                       'reviews_count': reviews_count_list, 'item_url': item_urls_list,
-                       'image_url': images_url_list}
+            all_items.extend(items)
 
-    return pd.DataFrame(data_dictionary)
+            self.get_next_page(driver)
+        
+        return all_items
 
+    def get_next_page(self, driver: object) -> None:
+        """This method helps the bot to move to the next page.
+        Args:
+            driver (object): driver object from Selenium,
+        Returns:
+            None
+        """
+        # click next page element
+        driver.find_element_by_xpath("//div[@class='ui-pagination-navi util-left']/*[last()]").click()
+        time.sleep(randint(12, 15))
 
-def scraper(keywords: 'list[str]', results_count: int):
-    """
-    Loops through every keyword in keywords_list and calls the scraping method,
-    after dataframe is returned it calls the method to insert the data to the keywords_data table
-    :param keywords: List of keywords to scrape (List[str])
-    :param results_count: Number of products to scrape for each keyword (int)
-    """
-    for keyword in keywords:
-        insert_keyword(keyword)
-        df = scrape_keyword(results_count, keyword)
-        keyword_id = get_last_keyword_id()
-        insert_dataframe_to_keywords_data(df, keyword_id)
-        time.sleep(random.uniform(3, 5))
+    def export_csv(self, items: list) -> None:
+        """This method exports a csv file into the root directory.
+        Args:
+            driver (object): driver object from Selenium,
+        Returns:
+            None
+        """
+        df = pd.DataFrame(items)
+        df.to_csv('aliexpress_csv', index=False)
 
+    def main(self) -> None:
+        """This is the main method where the magic happens, it utilizes all the defined methods and calls them in correct order.
+        Returns:
+            None
+        """
+        driver = webdriver.Chrome(self.__driver_path)
+        driver.get("https://www.aliexpress.com/")
+
+        # waiting for the popup to show
+        self.wait(driver, 10, By.CLASS_NAME, "poplayer-content")
+
+        # close the popup
+        self.close_popup(driver)
+
+        # sign in to the account
+        self.signin(driver)
+
+        # waiting for the account element to appear,
+        # this will tell us that we are signed in 
+        self.wait(driver, 30, By.CLASS_NAME, "_2kPHY")
+        time.sleep(randint(4,6))
+        self.get_my_orders_page(driver)
+
+        # scrape all items from the account
+        all_items = self.get_all_items(driver)
+        
+        # export to csv file
+        self.export_csv(all_items)
