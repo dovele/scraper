@@ -1,90 +1,108 @@
-from selenium.webdriver import Firefox
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
-from selenium.common.exceptions import NoSuchElementException
-from time import sleep
 import pandas as pd
+from bs4 import BeautifulSoup
+import requests
+from fake_useragent import UserAgent
+import time
+import random
+from decimal import Decimal
+import re
+from database_operations import *
 
-URL = "https://www.vinted.co.uk/vetements?search_text="
 
-
-def dataframe_setup():
-    column_names = ["title", "price", "item_link", "image_link", "item_type"]
-    df = pd.DataFrame(columns=column_names)
-    return df
-
-
-def scrape(items: list, quantity: int):
+def scrape_keyword(number_of_items: int, keyword: str) -> pd.DataFrame:
     """
-    This function will scrape the titles, prices, item links and image links of a requested category of items.
-    Provide a list of categories in place of the items parameter and a number of items to find in place of quantity
-    parameter. When finished the function produces a pandas dataframe containing all the data.
+    Scrapes number_of_items products from etsy.com for a given keyword
+    and returns a pandas dataframe
+    :param number_of_items: Number of products to scrape (int)
+    :param keyword: Keyword for which scrape products data (str)
+    :return: pandas Dataframe
     """
-    options = Options()
-    options.add_argument('-headless')
-    driver = Firefox(executable_path="geckodriver", options=options)
+    ua = UserAgent()
 
-    final_df = dataframe_setup()
-    for i in items:
-        driver.get(URL + i)
-        all_items = []
-        all_titles_list = []
-        all_prices_list = []
-        all_links_list = []
-        all_images_list = []
+    items_count = 0
+    titles_list = []
+    prices_list = []
+    ratings_list = []
+    reviews_count_list = []
+    item_urls_list = []
+    images_url_list = []
 
-        while len(all_prices_list) < quantity:
-            sleep(5)
-            # scrapes all titles
-            titles = [title.text for title in driver.find_elements_by_class_name("ItemBox_details__1c8wh")]
-            all_titles_list.append(titles)
+    keyword_query = keyword.replace(" ", "+")
 
-            # scrapes all prices
-            prices = [price.text for price in driver.find_elements_by_class_name("ItemBox_title__2FmDy")]
-            all_prices_list.append(prices)
+    while items_count < number_of_items:
+        page_number = 1
 
-            # scrapes all item links
-            item_links = [link.get_attribute("href") for link in
-                          driver.find_elements_by_class_name("ItemBox_overlay__1kNfX")]
-            all_links_list.append(item_links)
+        url = f'https://www.etsy.com/search?q={keyword_query}&page={page_number}'
+        page = requests.get(url=url, headers={"User-Agent": ua.chrome})
+        if page.status_code == 200:
+            soup = BeautifulSoup(page.content, "html.parser")
+            for container in soup.select(".js-merch-stash-check-listing.v2-listing-card"):
 
-            # scrapes all image links
-            image_links = [image.get_attribute("src") for image in
-                           driver.find_elements_by_css_selector("div.ItemBox_image__3BPYe img")]
-            all_images_list.append(image_links)
+                title = container.find("h3").text.strip().replace("'", "")
+                titles_list.append(title)
 
-            try:
-                element = driver.find_element_by_xpath('//a[@class="Pagination_next__DUhdH"]')
-                driver.execute_script("arguments[0].click();", element)
-            except NoSuchElementException:
-                break
+                price = Decimal(container.find("span", class_="currency-value").text)
+                prices_list.append(price)
 
-        all_titles = [item for sublist in all_titles_list for item in sublist]
-        all_prices = [item for sublist in all_prices_list for item in sublist]
-        all_links = [item for sublist in all_links_list for item in sublist]
-        all_images = [item for sublist in all_images_list for item in sublist]
-        all_items.extend((all_titles, all_prices, all_links, all_images))
+                try:
+                    rating = float(container.find("input").get('value'))
+                except:
+                    rating = 0
+                    pass
 
-        # stores the information in a dataframe
-        items_df = pd.DataFrame(all_items).T
-        mapping = {items_df.columns[0]: 'title', items_df.columns[1]: 'price',
-                   items_df.columns[2]: 'item_link', items_df.columns[3]: 'image_link'}
+                ratings_list.append(rating)
 
-        items_df = items_df.rename(columns=mapping)
-        category = f"{i}"
+                try:
+                    reviews_container = container.select(".text-body-smaller.text-gray-lighter")
+                    reviews_count_string = reviews_container[1].text
+                    reviews_count_without_parentheses = re.sub('[(,)]', '', reviews_count_string)
+                    reviews_count = int(reviews_count_without_parentheses)
+                except:
+                    reviews_count = 0
+                    pass
 
-        final_df = final_df.append(items_df, ignore_index=True)
-        final_df["item_type"] = final_df["item_type"].fillna(value=category)
+                reviews_count_list.append(reviews_count)
 
-    driver.quit()
-    return final_df
+                item_url = container.find("a").get('href')
+                item_urls_list.append(item_url)
+
+                image_url = container.find("img").get('src')
+                if not image_url:
+                    image_url = container.find("img").get('data-src')
+                images_url_list.append(image_url)
+
+                items_count += 1
+
+                if items_count == number_of_items:
+                    break
+
+        else:
+            print('Page unreachable')
+            break
+
+        page_number += 1
+        print('End of loop. Currently there are: ', str(items_count), ' items from: ', str(number_of_items))
+
+        time.sleep(random.uniform(2, 4))
+
+    data_dictionary = {'title': titles_list, 'price': prices_list, 'rating': ratings_list,
+                       'reviews_count': reviews_count_list, 'item_url': item_urls_list,
+                       'image_url': images_url_list}
+
+    return pd.DataFrame(data_dictionary)
 
 
-def make_csv(name: str, df):
+def scraper(keywords: 'list[str]', results_count: int):
     """
-    This function takes a dataframe and makes it into a csv file. A name for the file needs to be given when calling
-    the function.
+    Loops through every keyword in keywords_list and calls the scraping method,
+    after dataframe is returned it calls the method to insert the data to the keywords_data table
+    :param keywords: List of keywords to scrape (List[str])
+    :param results_count: Number of products to scrape for each keyword (int)
     """
-    string_execute = f"./{name}.csv"
-    df.to_csv(path_or_buf=string_execute, header=False, sep=";")
+    for keyword in keywords:
+        insert_keyword(keyword)
+        df = scrape_keyword(results_count, keyword)
+        keyword_id = get_last_keyword_id()
+        insert_dataframe_to_keywords_data(df, keyword_id)
+        time.sleep(random.uniform(3, 5))
+
