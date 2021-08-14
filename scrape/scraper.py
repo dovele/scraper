@@ -10,7 +10,7 @@ headers = {'User-Agent':
             'Referer': 'https://google.com',
             'DNT': '1'}
 
-searchterm = 'dress'
+searchterm = 'sunglasses'
 
 class Scraper:
   def get_data(searchterm):
