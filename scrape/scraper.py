@@ -10,35 +10,41 @@ headers = {'User-Agent':
             'Referer': 'https://google.com',
             'DNT': '1'}
 
-searchterm = 'sunglasses'
+def scrape_data(items_to_scrape, keywords):
+  """
+  Scrapes ebay website for a number of samples for each keyword
+  
+  :param items_to_scrape: integer of items to scrape for each keyword.
+  :param keywords: list of keywords to scrape.
+  :return: pandas dataframe with the following columns:
+    Category (keyword), title, price, item url, image url.
+    
+  """
 
-class Scraper:
-  def get_data(searchterm):
-      url = f'https://www.ebay.com/sch/i.html?_from=R40&_nkw={searchterm}&_sacat=0&_ipg=192&_pgn={page}'
-      r = requests.get(url, headers=headers)
-      soup = BeautifulSoup(r.text, 'html.parser')
-      return soup
+  data = {"category": [], "item_title": [], "item_price": [], "item_url": [], "item_image": []}
+  for keyword in keywords:
+    page_url = []
+    for i in range(1,round((items_to_scrape/203) + 1)):
+        page_url.append('https://www.ebay.com/sch/i.html?_from=R40&_nkw=' + keyword + '&_sacat=0&_ipg=192&_pgn=' + str(i))
+    # details of the info from the website
+    for links in page_url:
+      print(links)
+      response = requests.get(links, headers=headers)
+      soup = BeautifulSoup(response.content, 'html.parser')
 
-  def parse(soup):
-      productslist = []
-      results = soup.find_all('div', {'class': 's-item__wrapper clearfix'})
-      for item in results:
-          product = {
-              'category': item.find('span', {'class': 'SECONDARY_INFO'}),
-              'title': item.find('h3', {'class': 's-item__title'}).text,
-              'price': item.find('span', {'class': 's-item__price'}),
-              'image': item.find('img', {'class': 's-item__image-img'}),
-              'item': item.find('a')       
-          }
-          productslist.append(product)
-      return productslist
+      
+      for title in soup.find_all('h3', { 'class': 's-item__title' }):
+        data["item_title"].append(title.text)
+        data["category"].append(keyword)
+      for price in soup.find_all('span', { 'class':"s-item__price" }):
+        data["item_price"].append(price.text)
+      for url_of_item in soup.find_all('a', { 'class': 's-item__link' }):
+        data["item_url"].append(url_of_item.get('href'))
+      for url_of_image in soup.find_all('img', { 'class': 's-item__image-img' }):
+        data["item_image"].append(url_of_image['src'])
+    page_url.clear()
 
-  def output(productslist, searchterm):
-        productsdf =  pd.DataFrame(productslist)
-        productsdf.to_csv(searchterm + 'output.csv', index=False)
-        print('Saved to CSV')
-        return
+  df = pd.DataFrame.from_dict(data, orient='index')
+  return df.transpose()
 
-  soup = get_data(searchterm)
-  productslist = parse(soup)
-  output(productslist, searchterm)
+# scrape_data(3000, ['dress', 'bikini', 'sunglasses'])  # Example
