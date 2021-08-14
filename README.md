@@ -5,17 +5,21 @@ Project contains two Python files: scraper.py and database.py
 
 It scrapes this information - category, titles, prices, item urls, image urls.
 
-## Installation
-```
-  ! pip install git+https://github.com/dovele/scraper/#egg=scraper
-  
-  from scraper import Scraper
-  scraper = Scraper()
-```
 ## Usage
+To scrape product information:
+1) run '''scraper.py'''
+2) put in the number of items ('''items_to_scrape''') and keywords ('''keywords''') you want to scrape into '''scrape_data(items_to_scrape, keywords)''', e.g.:
 
-To scrape, put in a keyword into 'searchterm =', for example 'search term = 'sunglasses''. The output will be a csv file. 
-Successful scraping returns 'Saved to CSV'.
+'''
+scrape_data(3000, ['dress', 'bikini', 'sunglasses'])
+'''
+
+To insert tables into Heroku database:
+1) run '''database.py'''
+2) put in the datframe you scraped funtion into '''create_insert_table(df)''', e.g.:
+'''
+create_insert_table(scrape_data(3000, ['dress', 'bikini', 'sunglasses']))
+'''
 
 ## License
 > You can check out the full license here: https://opensource.org/licenses/MIT
