@@ -14,3 +14,8 @@ It scrapes this information - category, titles, prices, item urls, image urls.
 
 To scrape, put in a keyword into 'searchterm =', for example 'search term = 'sunglasses''. The output will be a csv file. 
 Successful scraping returns 'Saved to CSV'.
+
+## License
+> You can check out the full license here
+
+This project is licensed under the terms of the MIT license.
