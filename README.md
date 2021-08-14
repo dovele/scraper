@@ -8,6 +8,7 @@ It scrapes this information - category, titles, prices, item urls, image urls.
 ## Installation
 ```
   ! pip install git+https://github.com/dovele/scraper/#egg=scraper
+  
   from scraper import Scraper
   scraper = Scraper()
 ```
