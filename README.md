@@ -16,6 +16,6 @@ To scrape, put in a keyword into 'searchterm =', for example 'search term = 'sun
 Successful scraping returns 'Saved to CSV'.
 
 ## License
-> You can check out the full license here
+> You can check out the full license here: https://opensource.org/licenses/MIT
 
 This project is licensed under the terms of the MIT license.
